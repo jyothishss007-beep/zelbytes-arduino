@@ -1,30 +1,36 @@
-Sensor Placement Notes
-LDR
-Parameter  	Value
-Location	  Breadboard
-Exposure	  Ambient room light
-Notes     	Unobstructed placement
+# Sensor Placement Notes
 
-DHT22
-Parameter	  Value
-Location	  Breadboard
-Airflow	    Open room environment
-Notes	      Away from heat sources
+## LDR
+| Parameter | Value |
+|-----------|-------|
+| Location | Breadboard |
+| Exposure | Ambient room light |
+| Notes | Unobstructed placement |
 
-HC-SR04
-Parameter   	  Value
-Orientation 	  Facing flat target
-Test Distance 	10–30 cm
-Notes	          Perpendicular to target surface
+## DHT22
+| Parameter | Value |
+|-----------|-------|
+| Location | Breadboard |
+| Airflow | Open room environment |
+| Notes | Away from heat sources |
 
-Soil Moisture Sensor
-Parameter    	Value
-Type	        Capacitive v1.2
-Probe         Depth	Halfway into soil
-Orientation	  Vertical
+## HC-SR04
+| Parameter | Value |
+|-----------|-------|
+| Orientation | Facing flat target |
+| Test Distance | 10–30 cm |
+| Notes | Perpendicular to target surface |
 
-Summary
+## Soil Moisture Sensor
+| Parameter | Value |
+|-----------|-------|
+| Type | Capacitive v1.2 |
+| Probe Depth | Halfway into soil |
+| Orientation | Vertical |
+
+## Summary
+
 All sensors were tested indoors under stable conditions and mounted securely on a breadboard.
 
-Board: Arduino Uno
-Baud Rate: 9600
+**Board:** Arduino Uno  
+**Baud Rate:** 9600
