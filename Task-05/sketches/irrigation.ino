@@ -1,152 +1,298 @@
 #include <DHT.h>
 
-#define SOIL_PIN   A0
-#define DHTPIN     2
-#define DHTTYPE    DHT11
+// =====================
+// Pin Definitions
+// =====================
+#define SOIL_PIN    A0
+#define DHT_PIN     4
+#define RELAY_PIN   8
+#define LED_PIN     13
 
-#define RELAY_PIN  9
-#define LED_PIN    13
+#define DHT_TYPE DHT22
 
-DHT dht(DHTPIN, DHTTYPE);
+// =====================
+// Soil Calibration
+// Adjust after testing
+// =====================
+const int DRY_VALUE = 850;
+const int WET_VALUE = 250;
 
-enum State {
+// =====================
+// Thresholds (thresholds.h)
+// =====================
+const int SOIL_MIN = 25;       // Turn ON irrigation
+const int SOIL_TARGET = 40;    // Turn OFF irrigation
+
+const int LOW_COUNT_REQ = 3;   // Debounce count
+const int HUMIDITY_MAX = 85;
+
+const unsigned long MAX_RUN_TIME = 10000UL;
+const unsigned long COOLDOWN_TIME = 5000UL;
+
+// =====================
+// State Machine
+// =====================
+enum State
+{
   IDLE,
+  MONITORING,
   IRRIGATING,
   COOLDOWN,
   FAULT
 };
 
-State currentState = IDLE;
+State state = IDLE;
 
-// Adjust after calibration
-const int soilThreshold = 400;
+DHT dht(DHT_PIN, DHT_TYPE);
 
-// Timing
-const unsigned long irrigationTime = 5000; // 5 sec
-const unsigned long cooldownTime = 10000;  // 10 sec
+unsigned long irrigateStart = 0;
+unsigned long cooldownStart = 0;
 
-unsigned long stateStartTime = 0;
-
+int lowCount = 0;
 int dhtFailCount = 0;
 
-void setup() {
+// =====================
+// Relay Control
+// Active LOW Relay
+// =====================
+void setValve(bool open)
+{
+  digitalWrite(RELAY_PIN, open ? LOW : HIGH);
+}
+
+// =====================
+// Log State Changes
+// =====================
+void logTransition(const char* fromState,
+                   const char* toState)
+{
+  Serial.print("[");
+  Serial.print(millis());
+  Serial.print(" ms] ");
+
+  Serial.print(fromState);
+  Serial.print(" -> ");
+  Serial.println(toState);
+}
+
+// =====================
+// Setup
+// =====================
+void setup()
+{
   Serial.begin(9600);
 
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
 
-  // Initial state
-  digitalWrite(RELAY_PIN, LOW);
+  setValve(false);
   digitalWrite(LED_PIN, LOW);
 
   dht.begin();
 
-  Serial.println("System Started");
-  Serial.println("STATE -> IDLE");
+  Serial.println("=================================");
+  Serial.println("TASK 5 STATE MACHINE");
+  Serial.println("=================================");
+
+  logTransition("STARTUP", "IDLE");
 }
 
-void loop() {
+// =====================
+// Main Loop
+// =====================
+void loop()
+{
+  int rawSoil = analogRead(SOIL_PIN);
 
-  // Read soil moisture
-  int soilValue = analogRead(SOIL_PIN);
+  int moisturePercent =
+      map(rawSoil, DRY_VALUE, WET_VALUE, 0, 100);
 
-  // Read DHT humidity (used for fault detection)
+  moisturePercent =
+      constrain(moisturePercent, 0, 100);
+
   float humidity = dht.readHumidity();
 
-  Serial.print("Soil Moisture: ");
-  Serial.println(soilValue);
-
-  // Check DHT failures
-  if (isnan(humidity)) {
-
+  // =====================
+  // DHT Fault Detection
+  // =====================
+  if (isnan(humidity))
+  {
     dhtFailCount++;
 
-    Serial.print("DHT Error Count: ");
+    Serial.print("[");
+    Serial.print(millis());
+    Serial.print(" ms] DHT Failure Count = ");
     Serial.println(dhtFailCount);
 
-    if (dhtFailCount >= 3) {
-      currentState = FAULT;
-      Serial.println("STATE -> FAULT");
+    if (dhtFailCount >= 3)
+    {
+      logTransition("ANY STATE", "FAULT");
+      state = FAULT;
     }
-
-  } else {
+  }
+  else
+  {
     dhtFailCount = 0;
   }
 
-  switch (currentState) {
-
-    // ---------------- IDLE ----------------
+  // =====================
+  // State Machine
+  // =====================
+  switch (state)
+  {
+    // -----------------
     case IDLE:
-
-      digitalWrite(RELAY_PIN, LOW); // Valve closed
-      digitalWrite(LED_PIN, LOW);   // LED OFF
-
-      // Dry soil detected
-      if (soilValue > soilThreshold && dhtFailCount == 0) {
-
-        currentState = IRRIGATING;
-        stateStartTime = millis();
-
-        Serial.println("Dry Soil Detected");
-        Serial.println("STATE -> IRRIGATING");
-
-        digitalWrite(RELAY_PIN, HIGH); // Open valve
-        digitalWrite(LED_PIN, HIGH);   // LED ON
-      }
-
-      break;
-
-    // ------------- IRRIGATING -------------
-    case IRRIGATING:
-
-      digitalWrite(RELAY_PIN, HIGH); // Valve open
-      digitalWrite(LED_PIN, HIGH);   // LED ON
-
-      if (millis() - stateStartTime >= irrigationTime) {
-
-        digitalWrite(RELAY_PIN, LOW); // Close valve
-        digitalWrite(LED_PIN, LOW);
-
-        currentState = COOLDOWN;
-        stateStartTime = millis();
-
-        Serial.println("Watering Complete");
-        Serial.println("STATE -> COOLDOWN");
-      }
-
-      break;
-
-    // ------------- COOLDOWN ---------------
-    case COOLDOWN:
-
-      digitalWrite(RELAY_PIN, LOW);
+    // -----------------
+      setValve(false);
       digitalWrite(LED_PIN, LOW);
 
-      if (millis() - stateStartTime >= cooldownTime) {
+      logTransition("IDLE", "MONITORING");
 
-        currentState = IDLE;
+      state = MONITORING;
 
-        Serial.println("Cooldown Complete");
-        Serial.println("STATE -> IDLE");
+      break;
+
+    // -----------------
+    case MONITORING:
+    // -----------------
+
+      if (moisturePercent < SOIL_MIN)
+      {
+        lowCount++;
+
+        Serial.print("Low Moisture Count = ");
+        Serial.println(lowCount);
+      }
+      else
+      {
+        lowCount = 0;
+      }
+
+      if (lowCount >= LOW_COUNT_REQ &&
+          humidity < HUMIDITY_MAX)
+      {
+        logTransition("MONITORING", "IRRIGATING");
+
+        state = IRRIGATING;
+
+        irrigateStart = millis();
+
+        setValve(true);
+        digitalWrite(LED_PIN, HIGH);
+
+        lowCount = 0;
       }
 
       break;
 
-    // --------------- FAULT ----------------
-    case FAULT:
+    // -----------------
+    case IRRIGATING:
+    // -----------------
 
-      digitalWrite(RELAY_PIN, LOW); // Valve closed
+      setValve(true);
+      digitalWrite(LED_PIN, HIGH);
+
+      // Hysteresis stop condition
+      if (moisturePercent >= SOIL_TARGET)
+      {
+        logTransition("IRRIGATING", "COOLDOWN");
+
+        setValve(false);
+
+        cooldownStart = millis();
+
+        state = COOLDOWN;
+      }
+
+      // Max Runtime Safety
+      else if (millis() - irrigateStart >= MAX_RUN_TIME)
+      {
+        Serial.println("MAX RUN TIME REACHED");
+
+        logTransition("IRRIGATING", "COOLDOWN");
+
+        setValve(false);
+
+        cooldownStart = millis();
+
+        state = COOLDOWN;
+      }
+
+      break;
+
+    // -----------------
+    case COOLDOWN:
+    // -----------------
+
+      setValve(false);
+      digitalWrite(LED_PIN, LOW);
+
+      if (millis() - cooldownStart >= COOLDOWN_TIME)
+      {
+        logTransition("COOLDOWN", "MONITORING");
+
+        state = MONITORING;
+      }
+
+      break;
+
+    // -----------------
+    case FAULT:
+    // -----------------
+
+      setValve(false);
 
       // Blink LED
-      digitalWrite(LED_PIN, HIGH);
-      delay(250);
-      digitalWrite(LED_PIN, LOW);
-      delay(250);
+      digitalWrite(LED_PIN,
+                   (millis() / 250) % 2);
 
-      Serial.println("FAULT: DHT Sensor Failure");
+      Serial.println(
+        "FAULT STATE - DHT SENSOR ERROR");
+
+      delay(1000);
 
       break;
   }
 
-  delay(500);
+  // =====================
+  // Status Log
+  // =====================
+  Serial.print("[");
+  Serial.print(millis());
+  Serial.print(" ms] ");
+
+  Serial.print("State=");
+
+  switch (state)
+  {
+    case IDLE:
+      Serial.print("IDLE");
+      break;
+
+    case MONITORING:
+      Serial.print("MONITORING");
+      break;
+
+    case IRRIGATING:
+      Serial.print("IRRIGATING");
+      break;
+
+    case COOLDOWN:
+      Serial.print("COOLDOWN");
+      break;
+
+    case FAULT:
+      Serial.print("FAULT");
+      break;
+  }
+
+  Serial.print(" | Soil=");
+  Serial.print(moisturePercent);
+  Serial.print("%");
+
+  Serial.print(" | Humidity=");
+  Serial.print(humidity);
+  Serial.println("%");
+
+  delay(1000);
 }
