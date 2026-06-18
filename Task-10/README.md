@@ -4,7 +4,7 @@
 
 ### Intern Details
 
-* Name: Krishna A S
+* Name:Jyothish SS
 * Branch: Electronics and Communication Engineering
 * Platform: Arduino UNO
 * Project: Smart Grow Bench Irrigation System
